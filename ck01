@@ -1,1 +1,54 @@
-sw
+const http = require('http');
+const https = require('https');
+const url = require('url');
+
+const PORT = process.env.PORT || 8080;
+
+const server = http.createServer((req, res) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+
+  const targetUrl = url.parse(req.url);
+  
+  if (!targetUrl.hostname) {
+    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    res.end('Bad Request: Invalid URL');
+    return;
+  }
+
+  const protocol = targetUrl.protocol === 'https:' ? https : http;
+  const options = {
+    hostname: targetUrl.hostname,
+    port: targetUrl.port || (targetUrl.protocol === 'https:' ? 443 : 80),
+    path: targetUrl.path || '/',
+    method: req.method,
+    headers: {
+      ...req.headers,
+      host: targetUrl.hostname,
+    },
+  };
+
+  delete options.headers['proxy-connection'];
+
+  const proxyReq = protocol.request(options, (proxyRes) => {
+    res.writeHead(proxyRes.statusCode, proxyRes.headers);
+    proxyRes.pipe(res);
+  });
+
+  proxyReq.on('error', (err) => {
+    console.error('Proxy error:', err);
+    res.writeHead(502, { 'Content-Type': 'text/plain' });
+    res.end('Bad Gateway: ' + err.message);
+  });
+
+  req.pipe(proxyReq);
+});
+
+server.listen(PORT, () => {
+  console.log(`Web proxy server listening on port ${PORT}`);
+  console.log(`Usage: Set your browser proxy to http://localhost:${PORT}`);
+});
+
+server.on('error', (err) => {
+  console.error('Server error:', err);
+  process.exit(1);
+});
